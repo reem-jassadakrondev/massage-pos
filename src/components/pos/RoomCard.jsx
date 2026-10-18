@@ -1,119 +1,70 @@
-import { useEffect, useMemo, useState } from 'react'
-import { Clock3, CreditCard, Plus, UserRound } from 'lucide-react'
-import StatusBadge from '../common/StatusBadge'
+import { CalendarClock, Clock3, Plus, Receipt } from 'lucide-react'
+import { minutesBetween, minutesText, timeHM } from '../../lib/format'
+import { Avatar, Button, Pill } from '../ui'
 
-export default function RoomCard({ room, booking, therapists, services, onSelect, onExtend }) {
-  const [now, setNow] = useState(new Date())
+export default function RoomCard({ room, booking, therapist, service, reservation, now, onOpen, onCheckout, onExtend }) {
+  if (!booking) {
+    return (
+      <div className="flex flex-col rounded-3xl border-2 border-emerald-400 bg-emerald-50 p-5 shadow-sm">
+        <div className="flex items-start justify-between gap-2">
+          <h3 className="text-2xl font-extrabold text-stone-900">{room.room_name}</h3>
+          <Pill tone="green">ว่าง</Pill>
+        </div>
+        {reservation ? (
+          <p className="mt-2 flex items-center gap-2 rounded-xl bg-sky-100 px-3 py-2 text-lg font-bold text-sky-900">
+            <CalendarClock size={22} /> มีจอง {timeHM(reservation.start)} {reservation.customerName}
+          </p>
+        ) : null}
+        <Button size="xl" className="mt-4 w-full flex-1" icon={Plus} onClick={() => onOpen(room)}>
+          เปิดห้อง
+        </Button>
+      </div>
+    )
+  }
 
-  useEffect(() => {
-    const timer = window.setInterval(() => setNow(new Date()), 1000)
-    return () => window.clearInterval(timer)
-  }, [])
-
-  const therapist = useMemo(
-    () => therapists.find((item) => item.id === booking?.therapistId),
-    [booking, therapists],
-  )
-
-  const service = useMemo(
-    () => services.find((item) => item.id === booking?.serviceId),
-    [booking, services],
-  )
-
-  const remainingMinutes = booking
-    ? Math.max(0, Math.ceil((new Date(booking.end).getTime() - now.getTime()) / 60000))
-    : null
-
-  const displayRemainingMinutes = remainingMinutes ?? 0
-  const remainingTone =
-    remainingMinutes === null
-      ? 'emerald'
-      : remainingMinutes <= 15
-        ? 'red'
-        : remainingMinutes <= 30
-          ? 'amber'
-          : 'emerald'
-
-  const handleCardKeyDown = (event) => {
-    if (event.key === 'Enter' || event.key === ' ') {
-      event.preventDefault()
-      onSelect(room.id, booking?.id)
-    }
+  const remaining = minutesBetween(now, booking.end)
+  const tone = remaining <= 0 ? 'over' : remaining <= 10 ? 'red' : 'amber'
+  const styles = {
+    amber: 'border-amber-400 bg-amber-50',
+    red: 'border-red-500 bg-red-50',
+    over: 'border-red-600 bg-red-100',
   }
 
   return (
-    <div
-      className={`w-full rounded-3xl border p-4 text-left shadow-sm transition-all duration-200 ${
-        room.status === 'available'
-          ? 'border-emerald-200 bg-emerald-50 hover:bg-emerald-100'
-          : 'border-red-200 bg-red-50 hover:bg-red-100'
-      }`}
-    >
-      <div
-        role="button"
-        tabIndex={0}
-        onClick={() => onSelect(room.id, booking?.id)}
-        onKeyDown={handleCardKeyDown}
-        className="w-full cursor-pointer text-left outline-none"
-      >
-        <div className="mb-3 flex items-center justify-between gap-2">
-          <div>
-            <p className="text-lg font-bold text-stone-800">{room.room_name}</p>
-            <p className="text-xs uppercase tracking-[0.12em] text-stone-500">{room.type === 'foot' ? 'เท้า' : 'นวดตัว'} </p>
-          </div>
-          <StatusBadge status={room.status === 'available' ? 'available' : 'occupied'} label={room.status === 'available' ? 'ว่าง' : 'ไม่ว่าง'} />
-        </div>
-
-        {booking ? (
-          <div className="space-y-3 text-sm text-stone-700">
-            <div className="flex items-center gap-2">
-              <UserRound size={15} className="text-stone-500" />
-              <span className="font-semibold text-stone-800">{therapist?.name ?? 'หมอ'}</span>
-            </div>
-            <div className="flex items-center gap-2">
-              <CreditCard size={15} className="text-stone-500" />
-              <span>{service?.title ?? 'บริการ'}</span>
-            </div>
-            <div
-              className={`flex items-center gap-2 rounded-2xl p-2 ${
-                remainingTone === 'red'
-                  ? 'bg-red-100/80'
-                  : remainingTone === 'amber'
-                    ? 'bg-amber-100/80'
-                    : 'bg-white/70'
-              }`}
-            >
-              <Clock3 size={15} className={remainingTone === 'red' ? 'text-red-700' : remainingTone === 'amber' ? 'text-amber-700' : 'text-emerald-700'} />
-              <span className={`font-bold ${remainingTone === 'red' ? 'text-red-700' : remainingTone === 'amber' ? 'text-amber-700' : 'text-emerald-700'}`}>
-                เหลือ {displayRemainingMinutes} นาที
-              </span>
-            </div>
-          </div>
-        ) : (
-          <div className="flex min-h-[88px] items-center justify-center rounded-2xl bg-white/60 text-sm font-semibold text-emerald-700">
-            กดเพื่อเปิดคิวใหม่
-          </div>
-        )}
+    <div className={`flex flex-col rounded-3xl border-2 p-5 shadow-sm ${styles[tone]}`}>
+      <div className="flex items-start justify-between gap-2">
+        <h3 className="text-2xl font-extrabold text-stone-900">{room.room_name}</h3>
+        {tone === 'amber' ? <Pill tone="amber">กำลังนวด</Pill> : <Pill tone="red">{tone === 'over' ? 'เกินเวลา' : 'ใกล้หมดเวลา'}</Pill>}
       </div>
 
-      {booking ? (
-        <div className="mt-3 grid grid-cols-2 gap-2">
-          <button
-            type="button"
-            onClick={() => onExtend(booking.id, 30)}
-            className="flex min-h-[52px] items-center justify-center gap-1 rounded-2xl bg-amber-100 px-3 py-2 text-sm font-bold text-amber-700"
-          >
-            <Plus size={15} /> 30 นาที
-          </button>
-          <button
-            type="button"
-            onClick={() => onExtend(booking.id, 60)}
-            className="flex min-h-[52px] items-center justify-center gap-1 rounded-2xl bg-emerald-100 px-3 py-2 text-sm font-bold text-emerald-700"
-          >
-            <Plus size={15} /> 1 ชม.
-          </button>
+      <div className="mt-3 flex items-center gap-3">
+        <Avatar therapist={therapist} />
+        <div className="min-w-0">
+          <p className="truncate text-2xl font-bold text-stone-900">{therapist?.name}</p>
+          <p className="truncate text-lg text-stone-700">
+            {service?.title} · {booking.customerName}
+          </p>
         </div>
-      ) : null}
+      </div>
+
+      <div className={`mt-4 rounded-2xl px-4 py-3 ${tone === 'amber' ? 'bg-white/80' : 'bg-white'}`}>
+        <p className={`flex items-center gap-2 text-3xl font-extrabold tabular-nums ${tone === 'amber' ? 'text-stone-900' : 'text-red-700'} ${tone === 'over' ? 'animate-pulse' : ''}`}>
+          <Clock3 size={30} aria-hidden="true" />
+          {remaining > 0 ? `เหลือ ${minutesText(remaining)}` : `เกิน ${minutesText(-remaining || 1)}`}
+        </p>
+        <p className="mt-1 text-lg text-stone-700">
+          {timeHM(booking.start)} – {timeHM(booking.end)} ({minutesText(booking.minutes)})
+        </p>
+      </div>
+
+      <div className="mt-4 grid grid-cols-[auto_1fr] gap-3">
+        <Button variant="secondary" size="lg" icon={Plus} onClick={() => onExtend(booking)}>
+          30 นาที
+        </Button>
+        <Button size="lg" icon={Receipt} onClick={() => onCheckout(booking)}>
+          คิดเงิน
+        </Button>
+      </div>
     </div>
   )
 }

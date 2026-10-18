@@ -1,16 +1,31 @@
-# React + Vite
+# ระบบ POS ร้านนวด (เดโม)
 
-This template provides a minimal setup to get React working in Vite with HMR and some ESLint rules.
+เดโมสำหรับนำเสนอลูกค้า — ยังไม่ต่อฐานข้อมูล ข้อมูลเก็บในเบราว์เซอร์ (localStorage) รีเฟรชแล้วไม่หาย
 
-Currently, two official plugins are available:
+```bash
+npm install
+npm run dev      # http://localhost:5173
+```
 
-- [@vitejs/plugin-react](https://github.com/vitejs/vite-plugin-react/blob/main/packages/plugin-react) uses [Oxc](https://oxc.rs)
-- [@vitejs/plugin-react-swc](https://github.com/vitejs/vite-plugin-react/blob/main/packages/plugin-react-swc) uses [SWC](https://swc.rs/)
+- รหัสเจ้าของร้าน (PIN): **1234**
+- ก่อนนำเสนอลูกค้ารายใหม่: เจ้าของร้าน → ตั้งค่า → **รีเซ็ตข้อมูลเดโม**
+  (ข้อมูลตัวอย่างสร้างอิงเวลาปัจจุบัน: มีห้องกำลังนวด, ลูกค้าจองใกล้ถึง, ประวัติ 30 วัน)
 
-## React Compiler
+## หน้าจอ
 
-The React Compiler is not enabled on this template because of its impact on dev & build performances. To add it, see [this documentation](https://react.dev/learn/react-compiler/installation).
+| เมนู | ใช้ทำอะไร |
+|---|---|
+| หน้าร้าน | สถานะห้อง, เปิดห้อง, ต่อเวลา, คิดเงิน (ส่วนลด / ทิป / เงินสด / QR พร้อมเพย์ / แบ่งจ่าย), คิวหมอ, แจ้งเตือนลูกค้าจอง |
+| จองคิว | ตารางเวลารายหมอ (แตะช่องว่างเพื่อจอง), ลูกค้ามาแล้ว / ไม่มา / ยกเลิก / เลื่อนเวลา |
+| หมอนวด | เข้างาน / เลิกงาน, เบิกเงินล่วงหน้า, บันทึกงานวันนี้ |
+| ปิดรอบ | เปิดรอบ (เงินทอน), บิลของรอบ, ยกเลิกบิล (ต้องใช้ PIN), รายจ่าย, ปิดรอบ 4 ขั้นตอน + นับแบงก์, ประวัติ |
+| รายงาน 🔒 | ยอดขาย / ค่ามือ / กำไร รายวัน-7 วัน-30 วัน, กราฟ, บิลที่ถูกยกเลิก, พิมพ์รายงาน |
+| ค่าหมอ 🔒 | ยอดค้างจ่ายรายคนตามรอบจ่าย (วัน/สัปดาห์/เดือน), จ่ายเงินสดหรือโอน, ดูรายวัน, รายการเบิก, ประวัติการจ่าย |
+| ตั้งค่า 🔒 | บริการ-ราคา-ค่ามือ, หมอ, ห้อง, ชื่อร้าน, เบอร์พร้อมเพย์, PIN, **การจ่ายค่าหมอ** (รอบจ่าย, การันตีรายวัน, ทิปส่วนตัว/กองกลาง, แคชเชียร์เห็นรายได้หมอหรือไม่), รีเซ็ตเดโม |
 
-## Expanding the ESLint configuration
+## โครงสร้างโค้ด
 
-If you are developing a production application, we recommend using TypeScript with type-aware lint rules enabled. Check out the [TS template](https://github.com/vitejs/vite/tree/main/packages/create-vite/template-react-ts) for information on how to integrate TypeScript and [`typescript-eslint`](https://typescript-eslint.io) in your project.
+- `src/context/AppContext.jsx` — ข้อมูลและการทำงานทั้งหมด (จุดเดียวที่ต้องเปลี่ยนตอนต่อฐานข้อมูลจริง)
+- `src/lib/` — คิดราคา (`pricing`), ค่าหมอ (`payroll`: ค่ามือ + การันตี + ทิป − เบิก ต่อคนต่อวัน), สรุปยอด/คิว/เช็คเวลาชน (`selectors`), QR พร้อมเพย์ (`promptpay`), งานพิมพ์ (`print`)
+- `src/data/seed.js` — ข้อมูลตัวอย่าง
+- `src/pages/` หน้าหลัก, `src/components/ui.jsx` ปุ่มและฟอร์มขนาดใหญ่ (ออกแบบสำหรับผู้ใช้วัย 50+)

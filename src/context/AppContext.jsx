@@ -3,7 +3,7 @@
 import { createContext, useContext, useEffect, useMemo, useRef, useState } from 'react'
 import { DATA_VERSION, STORAGE_KEY, createSeed } from '../data/seed'
 import { DAY, addMinutes, digitsOnly, startOfDay, uid } from '../lib/format'
-import { payCells, payRows, paySettings, withoutCells } from '../lib/payroll'
+import { payCells, payRows, paySettings, withPayRule, withoutCells } from '../lib/payroll'
 import { billTotals, commissionFor, priceFor } from '../lib/pricing'
 import {
   activeBookings,
@@ -101,7 +101,7 @@ export const AppProvider = ({ children }) => {
     // Daily pay cycle settles at close — everything owed so far, so yesterday's balance carries over.
     const payouts =
       paySettings(db.settings).cycle === 'daily'
-        ? payRows(payCells(db, new Date(0), endOfToday()).filter((c) => !c.paid), db.therapists)
+        ? payRows(payCells(db, new Date(0), endOfToday()).filter((c) => c.due !== 0), db.therapists)
         : []
     const paying = payouts.filter((r) => r.unpaid > 0 && paidTherapistIds.includes(r.therapistId))
     const payoutsPaid = paying.reduce((total, r) => total + r.unpaid, 0)
@@ -142,7 +142,7 @@ export const AppProvider = ({ children }) => {
         ...preview.paying.map((r) => ({
           id: uid('p'),
           therapistId: r.therapistId,
-          days: r.unpaidDays,
+          days: r.dues,
           amount: r.unpaid,
           paidAt: closedAt,
           shiftId: currentShift.id,
@@ -157,9 +157,9 @@ export const AppProvider = ({ children }) => {
     return closed
   }
 
-  /** Pay a therapist for the listed days — in cash from the drawer, or transferred from the shop account. */
-  const payTherapist = ({ therapistId, days, amount, fromDrawer }) => {
-    if (!days.length) return fail('ไม่มียอดค้างจ่าย')
+  /** Settle a therapist's dues — in cash from the drawer, or transferred from the shop account. */
+  const payTherapist = ({ therapistId, dues, amount, fromDrawer }) => {
+    if (!(amount > 0)) return fail('ไม่มียอดค้างจ่าย')
     if (fromDrawer && !currentShift) return fail('ยังไม่ได้เปิดรอบ', 'จ่ายเงินสดจากลิ้นชักได้เมื่อเปิดรอบแล้ว')
     update((d) => ({
       payouts: [
@@ -167,7 +167,7 @@ export const AppProvider = ({ children }) => {
         {
           id: uid('p'),
           therapistId,
-          days,
+          days: dues,
           amount,
           paidAt: nowIso(),
           shiftId: fromDrawer ? currentShift.id : null,
@@ -565,7 +565,10 @@ export const AppProvider = ({ children }) => {
   const saveSettings = (payload) => {
     if (payload.ownerPin !== undefined && !/^\d{4}$/.test(payload.ownerPin)) return fail('รหัส PIN ต้องเป็นตัวเลข 4 หลัก')
     if (payload.pay?.guaranteeEnabled && !(Number(payload.pay.guaranteeAmount) > 0)) return fail('กรุณาใส่ยอดการันตีต่อวัน')
-    update((d) => ({ settings: { ...d.settings, ...payload } }))
+    update((d) => ({
+      settings: { ...d.settings, ...payload },
+      payRules: payload.pay ? withPayRule(d, payload.pay) : d.payRules,
+    }))
     notify('บันทึกการตั้งค่าแล้ว')
     return true
   }

@@ -1,7 +1,8 @@
 // Therapist pay, worked out per therapist per day ("cell") so every shop rule composes:
 //   pay = commission + guarantee top-up + tips − advances
-// A cell is paid once a payout record lists that day for that therapist, so daily,
-// weekly and monthly pay cycles all read from the same cells and never pay twice.
+// Each cell is a small ledger: due = what the day is worth now − what was paid against it.
+// Work done after a payout is still owed, a bill voided after a payout becomes a debt,
+// and daily, weekly and monthly pay cycles all read the same cells and never pay twice.
 
 import { DAY, dateShort, startOfDay } from './format'
 
@@ -23,16 +24,48 @@ export const dayKey = (value) => {
 }
 export const dayFromKey = (key) => new Date(`${key}T00:00`)
 
-const paidSet = (payouts = []) => new Set(payouts.flatMap((p) => p.days.map((day) => `${p.therapistId}|${day}`)))
+const PAY_RULE_FIELDS = ['guaranteeEnabled', 'guaranteeAmount', 'tipMode', 'tipSplit']
+const payRuleOf = (pay) => Object.fromEntries(PAY_RULE_FIELDS.map((field) => [field, pay[field]]))
+
+/** The rules in force on a day. A day keeps the rules it was worked under, whatever changes later. */
+export const payRuleFor = (db, day) =>
+  (db.payRules ?? []).filter((rule) => rule.from <= day).reduce(
+    (latest, rule) => (!latest || rule.from >= latest.from ? rule : latest),
+    null,
+  ) ?? paySettings(db.settings)
+
+/**
+ * The rule history after saving `pay`. New rules start today, or tomorrow once today's shift is
+ * closed, so a closed day's figures never move. Returns the same history when no rule changed.
+ */
+export function withPayRule(db, pay, now = new Date()) {
+  const today = dayKey(now)
+  const closedToday = (db.shifts ?? []).some((shift) => shift.status === 'closed' && dayKey(shift.closedAt) === today)
+  const from = closedToday ? dayKey(new Date(startOfDay(now).getTime() + DAY)) : today
+  const history = db.payRules?.length ? db.payRules : [{ from: '', ...payRuleOf(paySettings(db.settings)) }]
+  const current = payRuleFor({ ...db, payRules: history }, from)
+  if (PAY_RULE_FIELDS.every((field) => current[field] === pay[field])) return history
+  return [...history.filter((rule) => rule.from !== from), { from, ...payRuleOf(pay) }]
+}
+
+const paidByCell = (payouts = []) => {
+  const paid = new Map()
+  payouts.forEach((payout) => {
+    payout.days.forEach(({ day, amount }) => {
+      const key = `${payout.therapistId}|${day}`
+      paid.set(key, (paid.get(key) ?? 0) + amount)
+    })
+  })
+  return paid
+}
 
 /** Pay cells for [from, to). Includes every day a therapist worked, earned, or took an advance. */
 export function payCells(db, from, to) {
-  const pay = paySettings(db.settings)
   const inside = (value) => {
     const time = new Date(value).getTime()
     return time >= from.getTime() && time < to.getTime()
   }
-  const paid = paidSet(db.payouts)
+  const paid = paidByCell(db.payouts)
   const cells = new Map()
   const cell = (therapistId, day) => {
     const key = `${therapistId}|${day}`
@@ -60,67 +93,92 @@ export function payCells(db, from, to) {
     cell(a.therapistId, dayKey(a.time)).advance += a.amount
   })
 
+  // A payment stands even if everything behind it was later voided.
+  ;(db.payouts ?? []).forEach((payout) => {
+    payout.days.filter(({ day }) => inside(dayFromKey(day))).forEach(({ day }) => cell(payout.therapistId, day))
+  })
+
   const list = [...cells.values()]
 
-  if (pay.tipMode === 'pooled') {
-    const days = [...new Set(list.map((c) => c.day))]
-    days.forEach((day) => {
-      const dayCells = list.filter((c) => c.day === day)
+  new Set(list.map((c) => c.day)).forEach((day) => {
+    const rule = payRuleFor(db, day)
+    const dayCells = list.filter((c) => c.day === day)
+
+    if (rule.tipMode === 'pooled') {
       const pool = dayCells.reduce((total, c) => total + c.ownTips, 0)
       const workers = dayCells.filter((c) => c.worked)
       const totalJobs = workers.reduce((total, c) => total + c.jobs, 0)
-      const weight = (c) => (pay.tipSplit === 'by_jobs' && totalJobs ? c.jobs : 1)
+      const weight = (c) => (rule.tipSplit === 'by_jobs' && totalJobs ? c.jobs : 1)
       const totalWeight = workers.reduce((total, c) => total + weight(c), 0)
       let given = 0
       dayCells.forEach((c) => {
         c.tips = c.worked && totalWeight ? Math.floor((pool * weight(c)) / totalWeight) : 0
         given += c.tips
       })
-      // Hand the leftover satang-rounding baht to the first worker so the pool always balances.
-      if (workers.length) workers[0].tips += pool - given
+      // Rounding leftovers go to whoever carries the most weight, so the pool always balances.
+      if (workers.length) workers.reduce((top, c) => (weight(c) > weight(top) ? c : top)).tips += pool - given
       dayCells.forEach((c) => (c.tipPool = pool))
-    })
-  } else {
-    list.forEach((c) => (c.tips = c.ownTips))
-  }
+    } else {
+      dayCells.forEach((c) => (c.tips = c.ownTips))
+    }
 
-  list.forEach((c) => {
-    c.topUp = pay.guaranteeEnabled && c.worked ? Math.max(0, Number(pay.guaranteeAmount) - c.commission) : 0
-    c.earned = c.commission + c.topUp + c.tips
-    c.net = c.earned - c.advance
-    c.paid = paid.has(c.key)
+    dayCells.forEach((c) => {
+      c.topUp = rule.guaranteeEnabled && c.worked ? Math.max(0, Number(rule.guaranteeAmount) - c.commission) : 0
+      c.earned = c.commission + c.topUp + c.tips
+      c.net = c.earned - c.advance
+      c.paidAmount = paid.get(c.key) ?? 0
+      c.due = c.net - c.paidAmount
+    })
   })
 
   return list.sort((a, b) => a.day.localeCompare(b.day))
 }
 
+const rowFor = (therapist, cells) => {
+  const mine = cells.filter((c) => c.therapistId === therapist.id)
+  const sum = (pick) => mine.reduce((total, c) => total + pick(c), 0)
+  const dues = mine.filter((c) => c.due !== 0).map((c) => ({ day: c.day, amount: c.due }))
+  return {
+    therapistId: therapist.id,
+    name: therapist.name,
+    days: mine.filter((c) => c.worked).length,
+    jobs: sum((c) => c.jobs),
+    minutes: sum((c) => c.minutes),
+    revenue: sum((c) => c.revenue),
+    commission: sum((c) => c.commission),
+    topUp: sum((c) => c.topUp),
+    tips: sum((c) => c.tips),
+    advance: sum((c) => c.advance),
+    earned: sum((c) => c.earned),
+    net: sum((c) => c.net),
+    unpaid: sum((c) => c.due),
+    dues,
+    paidTotal: sum((c) => c.paidAmount),
+    cells: mine,
+  }
+}
+
 /** Roll cells up to one row per therapist (in the therapists' own order). */
-export function payRows(cells, therapists) {
+export const payRows = (cells, therapists) =>
+  therapists.map((therapist) => rowFor(therapist, cells)).filter((row) => row.cells.length)
+
+/** A pay period's rows, plus whatever is still unsettled from before it (`carry`). */
+export function periodRows(db, therapists, from, to) {
+  const period = payCells(db, from, to)
+  const earlier = payCells(db, new Date(0), from).filter((c) => c.due !== 0)
   return therapists
     .map((therapist) => {
-      const mine = cells.filter((c) => c.therapistId === therapist.id)
-      const sum = (pick, only = mine) => only.reduce((total, c) => total + pick(c), 0)
-      const unpaidCells = mine.filter((c) => !c.paid)
+      const row = rowFor(therapist, period)
+      const before = rowFor(therapist, earlier)
       return {
-        therapistId: therapist.id,
-        name: therapist.name,
-        days: mine.filter((c) => c.worked).length,
-        jobs: sum((c) => c.jobs),
-        minutes: sum((c) => c.minutes),
-        revenue: sum((c) => c.revenue),
-        commission: sum((c) => c.commission),
-        topUp: sum((c) => c.topUp),
-        tips: sum((c) => c.tips),
-        advance: sum((c) => c.advance),
-        earned: sum((c) => c.earned),
-        net: sum((c) => c.net),
-        unpaid: sum((c) => c.net, unpaidCells),
-        unpaidDays: unpaidCells.map((c) => c.day),
-        paidTotal: sum((c) => c.net, mine.filter((c) => c.paid)),
-        cells: mine,
+        ...row,
+        carry: before.unpaid,
+        unpaid: before.unpaid + row.unpaid,
+        dues: [...before.dues, ...row.dues],
+        hasEarlier: before.cells.length > 0,
       }
     })
-    .filter((row) => row.cells.length)
+    .filter((row) => row.cells.length || row.hasEarlier)
 }
 
 /** A row without its per-day cells — what a closed shift keeps as its snapshot. */

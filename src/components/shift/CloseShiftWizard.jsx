@@ -221,7 +221,7 @@ export default function CloseShiftWizard({ onClose, onGoPos }) {
               payouts.map((p) => {
                 const paid = paidIds.includes(p.therapistId)
                 const owes = p.unpaid <= 0
-                const carried = p.unpaidDays.length > 1
+                const carried = p.dues.length > 1
                 return (
                   <button
                     key={p.therapistId}
@@ -242,8 +242,9 @@ export default function CloseShiftWizard({ onClose, onGoPos }) {
                       <p className="text-base text-stone-600">
                         {p.jobs} รอบ · ค่ามือ {money(p.commission)}
                         {p.topUp ? ` + การันตี ${money(p.topUp)}` : ''} + ทิป {money(p.tips)} − เบิก {money(p.advance)}
+                        {p.paidTotal ? ` − จ่ายแล้ว ${money(p.paidTotal)}` : ''}
                       </p>
-                      {carried ? <p className="text-base font-bold text-amber-800">รวมยอดค้างจากวันก่อน ({p.unpaidDays.length} วัน)</p> : null}
+                      {carried ? <p className="text-base font-bold text-amber-800">รวมยอดค้างจากวันก่อน ({p.dues.length} วัน)</p> : null}
                     </div>
                     <span className={`text-2xl font-extrabold tabular-nums ${owes && p.unpaid < 0 ? 'text-red-700' : ''}`}>
                       {p.unpaid < 0 ? `ติดร้าน ${money(-p.unpaid)}` : `${money(p.unpaid)} บาท`}

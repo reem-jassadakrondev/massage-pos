@@ -233,6 +233,7 @@ function PaySettings() {
       <Button size="lg" className="mt-6" onClick={() => saveSettings({ pay: { ...pay, guaranteeAmount: Number(pay.guaranteeAmount) || 0 } })}>
         บันทึกการจ่ายค่าหมอ
       </Button>
+      <p className="mt-2 text-base text-stone-600">กติกาใหม่มีผลตั้งแต่วันนี้ (ถ้าปิดรอบแล้ว มีผลพรุ่งนี้) ยอดของวันก่อนไม่เปลี่ยน</p>
     </Card>
   )
 }

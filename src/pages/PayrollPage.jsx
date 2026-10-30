@@ -3,19 +3,19 @@ import { Banknote, ChevronDown, ChevronLeft, ChevronRight, ChevronUp, HandCoins,
 import { Avatar, Button, Card, Choices, Empty, Modal, Pill, SectionTitle, Stat } from '../components/ui'
 import { useApp } from '../context/AppContext'
 import { dateShort, dateWithDay, money, timeHM } from '../lib/format'
-import { CYCLE_LABEL, dayFromKey, payCells, payPeriod, payRows, paySettings, shiftPayPeriod, sumRows } from '../lib/payroll'
+import { CYCLE_LABEL, dayFromKey, payPeriod, paySettings, periodRows, shiftPayPeriod, sumRows } from '../lib/payroll'
 import { inRange } from '../lib/selectors'
 
 function PayDialog({ row, onClose }) {
   const { currentShift, therapists, payTherapist } = useApp()
   const [fromDrawer, setFromDrawer] = useState(!!currentShift)
 
-  const submit = () => payTherapist({ therapistId: row.therapistId, days: row.unpaidDays, amount: row.unpaid, fromDrawer }) && onClose()
+  const submit = () => payTherapist({ therapistId: row.therapistId, dues: row.dues, amount: row.unpaid, fromDrawer }) && onClose()
 
   return (
     <Modal
       title={`จ่ายค่าหมอ ${row.name}`}
-      subtitle={`${row.unpaidDays.length} วันที่ยังไม่ได้จ่าย`}
+      subtitle={`ยอดค้าง ${row.dues.length} วัน`}
       onClose={onClose}
       size="max-w-xl"
       footer={
@@ -41,6 +41,12 @@ function PayDialog({ row, onClose }) {
       />
     </Modal>
   )
+}
+
+function CellStatus({ cell }) {
+  if (cell.due < 0) return <Pill tone="red">ติดร้าน {money(-cell.due)}</Pill>
+  if (cell.due > 0) return <Pill tone="amber">{cell.paidAmount ? `ค้างเพิ่ม ${money(cell.due)}` : 'ค้าง'}</Pill>
+  return cell.net ? <Pill tone="green">จ่ายแล้ว</Pill> : '—'
 }
 
 function DayTable({ cells }) {
@@ -69,7 +75,7 @@ function DayTable({ cells }) {
               <td className="py-2 text-right tabular-nums">{money(c.tips)}</td>
               <td className="py-2 text-right tabular-nums">{c.advance ? money(c.advance) : '—'}</td>
               <td className="py-2 text-right font-bold tabular-nums">{money(c.net)}</td>
-              <td className="py-2 text-right">{c.paid ? <Pill tone="green">จ่ายแล้ว</Pill> : <Pill tone="amber">ค้าง</Pill>}</td>
+              <td className="py-2 text-right"><CellStatus cell={c} /></td>
             </tr>
           ))}
         </tbody>
@@ -86,7 +92,7 @@ export default function PayrollPage() {
   const [open, setOpen] = useState(null)
 
   const period = payPeriod(pay.cycle, anchor)
-  const rows = payRows(payCells(db, period.from, period.to), db.therapists)
+  const rows = periodRows(db, db.therapists, period.from, period.to)
   const advances = db.advances.filter((a) => inRange(a.time, period.from, period.to)).sort((a, b) => new Date(b.time) - new Date(a.time))
   const payouts = db.payouts.filter((p) => inRange(p.paidAt, period.from, period.to)).sort((a, b) => new Date(b.paidAt) - new Date(a.paidAt))
   const isCurrent = period.from.getTime() === payPeriod(pay.cycle).from.getTime()
@@ -131,7 +137,7 @@ export default function PayrollPage() {
           <div className="space-y-3">
             {rows.map((r) => {
               const expanded = open === r.therapistId
-              const settled = !r.unpaidDays.length
+              const settled = !r.dues.length
               return (
                 <Card key={r.therapistId} className="p-4">
                   <div className="flex flex-wrap items-center gap-4">
@@ -141,7 +147,13 @@ export default function PayrollPage() {
                       <p className="text-lg text-stone-700">
                         มา {r.days} วัน · {r.jobs} รอบ · ค่ามือ {money(r.commission)}
                         {r.topUp ? ` + การันตี ${money(r.topUp)}` : ''} + ทิป {money(r.tips)} − เบิก {money(r.advance)}
+                        {r.paidTotal ? ` − จ่ายแล้ว ${money(r.paidTotal)}` : ''}
                       </p>
+                      {r.carry ? (
+                        <p className="text-lg font-bold text-amber-800">
+                          {r.carry > 0 ? `รวมยอดค้างจากรอบก่อน ${money(r.carry)} บาท` : `หักยอดติดร้านจากรอบก่อน ${money(-r.carry)} บาท`}
+                        </p>
+                      ) : null}
                     </div>
                     {settled ? (
                       <Pill tone="green">จ่ายครบแล้ว {money(r.paidTotal)} บาท</Pill>

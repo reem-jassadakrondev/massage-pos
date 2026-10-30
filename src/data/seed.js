@@ -8,7 +8,7 @@ import { DEFAULT_PAY, payCells, payRows, withoutCells } from '../lib/payroll'
 import { expectedCash, summarize } from '../lib/selectors'
 
 export const STORAGE_KEY = 'massage-pos-demo'
-export const DATA_VERSION = 4
+export const DATA_VERSION = 5
 
 const services = [
   { id: 's1', title: 'นวดแผนไทย', duration_minutes: 60, price: 300, therapist_commission: 120 },
@@ -195,12 +195,12 @@ export const createSeed = (now = new Date()) => {
     // Daily pay cycle: at close, pay everyone what they are owed up to today.
     const sheet = { settings, bookings, attendance, advances, payouts }
     const dayEnd = new Date(day.getTime() + DAY)
-    const rows = payRows(payCells(sheet, new Date(0), dayEnd).filter((c) => !c.paid), baseTherapists)
+    const rows = payRows(payCells(sheet, new Date(0), dayEnd).filter((c) => c.due !== 0), baseTherapists)
     const topUp = payCells(sheet, day, dayEnd).reduce((total, c) => total + c.topUp, 0)
     const paying = rows.filter((r) => r.unpaid > 0)
     const payoutsPaid = paying.reduce((total, r) => total + r.unpaid, 0)
     paying.forEach((r) => {
-      payouts.push({ id: `hp${daysAgo}-${r.therapistId}`, therapistId: r.therapistId, days: r.unpaidDays, amount: r.unpaid, paidAt: iso(closedAt), shiftId, by: 'แคชเชียร์ (ปิดรอบ)' })
+      payouts.push({ id: `hp${daysAgo}-${r.therapistId}`, therapistId: r.therapistId, days: r.dues, amount: r.unpaid, paidAt: iso(closedAt), shiftId, by: 'แคชเชียร์ (ปิดรอบ)' })
     })
 
     const summary = summarize({
